@@ -7,5 +7,5 @@ X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_exa
 
 # Rename the colnames
 ```{r}
-colnames(X) = X_colnames$X
+colnames(X) = paste0("x", X_colnames$X)
 ```
