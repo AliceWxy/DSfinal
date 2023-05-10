@@ -1,0 +1,45 @@
+```{r}
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+```
+
+#使用mutate()和across()函数将X中的所有变量转换为数值型+列出CPI
+
+```{r}
+library(dplyr)
+X <- X %>% mutate(across(everything(), as.numeric))
+X[is.na(X)] <- 0
+X[, sapply(X, is.factor)] <- lapply(X[, sapply(X, is.factor)], as.numeric)
+#合并
+X$CPI <- cpi$CPI
+```
+
+```{r}
+library(caTools)
+set.seed(123) # 为了复现结果，设置随机数种子
+split <- sample.split(X$CPI, SplitRatio = 0.7)
+train <- subset(X, split == TRUE)
+test <- subset(X, split == FALSE)
+library(forecast)
+```
+
+#将训练集中的特征变量和目标变量分别存储在矩阵和向量中，并使用 cv.glmnet() 函数拟合模型。 #cv.glmnet() 函数执行交叉验证，选择最佳的正则化参数 lambda，并返回最优模型的系数向量。
+
+```{r}
+library(glmnet)
+x <- as.matrix(train[, -1]) # 特征变量矩阵，不包含时间变量
+y <- as.vector(train$CPI) # 目标变量向量
+cvfit <- cv.glmnet(x, y, alpha = 1) # 拟合模型，alpha = 1 表示使用 Lasso 正则化
+```
+
+```{r}
+x.test <- as.matrix(test[, -1]) # 测试集中的特征变量矩阵，不包含时间变量
+y.test <- as.vector(test$CPI) # 测试集中的目标变量向量
+y.pred <- predict(cvfit, newx = x.test) # 预测测试集的目标变量
+mse <- mean((y.test - y.pred)^2) # 计算均方误差
+print(mse)
+coef(cvfit) # 查看模型系数向量，即每个特征变量的重要性得分
+```
+
+#以上发现x67为cpi
