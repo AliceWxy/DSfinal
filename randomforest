@@ -1,0 +1,61 @@
+```{r}
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = X_colnames$X
+colnames(X) = paste0("x", X_colnames$X)
+```
+
+```{r}
+install.packages("randomForest")
+library(randomForest)
+
+#合并cpi和x数据
+cpi <- cpi[,-1]
+data <- cbind(X,cpi)
+data <- data[,-1]
+```
+
+```{r}
+#区分训练集和测试集
+train_size <- floor(0.8 * nrow(data))
+train <- data[1:train_size, ]
+test <- data[(train_size + 1):nrow(data), ]
+```
+```{r}
+install.packages("h2o")
+library(h2o)
+```
+
+```{r}
+localH2O = h2o.init(nthreads = -1) 
+train_h2o = as.h2o(train)
+test_h2o = as.h2o(test)
+inClass = FALSE
+if (inClass == FALSE) {
+  rf_fit = h2o.randomForest(x = 1:151, 
+                            y = 152,
+                            training_frame = train_h2o,
+                            ntrees = 500, # adjust to 3000 if want better performance
+                            stopping_rounds = 2,
+                            model_id = "rf_MNIST"
+  )
+  h2o.saveModel(rf_fit, path = "mnist" )  
+} else  {
+  rf_fit = h2o.loadModel(file.path("mnist", "rf_MNIST"))
+} 
+
+summary(rf_fit)  
+
+```
+
+```{r}
+predictions <- h2o.predict(rf_fit, newdata = test_h2o)
+
+# View a summary of the predictions
+summary(predictions)
+
+# Evaluate the performance
+perf <- h2o.performance(rf_fit, newdata = test_h2o); perf
+mae.nn <- h2o.mae(rf_fit); mae.nn
+r2.nn <- h2o.r2(rf_fit); r2.nn
+```
