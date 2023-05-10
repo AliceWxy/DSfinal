@@ -1,0 +1,61 @@
+---
+title: "DS2"
+author: "WANG, Xiangyi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# data
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+#Column names
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+
+# Scaling
+x.nn <- as.matrix(scale(X[,-1]))
+cpi.nn <- scale(cpi[,-1])
+colnames(cpi.nn) <- "cpi"
+ppi.nn <- scale(ppi[,-1])
+colnames(ppi.nn) <- "ppi"
+```
+
+```{r}
+install.packages("h2o")
+library(h2o)
+# start a local h2o cluster
+localH2O = h2o.init(nthreads = -1) # use all CPUs (8 on my PC)
+
+# Split the data
+tr <- round(nrow(x.nn)*0.8)
+train <- cbind(cpi.nn, x.nn)[1:tr,]
+test <- cbind(cpi.nn, x.nn)[tr:nrow(x.nn),]
+train_h2o = as.h2o(train)
+test_h2o = as.h2o(test)
+
+## train a simple neural network model
+model_Rectifierwd =
+  h2o.deeplearning(x = 2:152,  # column numbers for predictors
+                   y = 1,   # column number for label
+                   training_frame = train_h2o, # data in H2O format
+                   activation = "RectifierWithDropout", # algorithm
+                   input_dropout_ratio = 0.2, # % of inputs dropout
+                   hidden = c(60, 20), # 2 layers
+                   epochs = 200) # no. of epochs
+
+
+# Make predictions on the test set
+predictions <- h2o.predict(model_Rectifierwd, newdata = test_h2o)
+
+# View a summary of the predictions
+summary(predictions)
+
+# Evaluate the performance
+perf <- h2o.performance(model_Rectifierwd, newdata = test_h2o); perf
+mae.nn <- h2o.mae(model_Rectifierwd); mae.nn
+r2.nn <- h2o.r2(model_Rectifierwd); r2.nn
+```
