@@ -2,39 +2,39 @@
 load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
 X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
 colnames(X) = paste0("x", X_colnames$X)
+X_raw <- X
+rm(X)
 ```
 
 ```{r}
 #将数据差一期整合在一起
-cpi <- cpi[-168,-1]
-X <- X[-1,]
-data <- cbind(X,cpi)
-data <- data[,-1]
+cpi <- cpi[-1, ]
+X_raw <- X_raw[-nrow(X_raw), ]
+cpi$x1 <- 1:nrow(cpi)
+cpi$month <- NULL
+X <- merge(X_raw, cpi, by = "x1")
 ```
 #使用mutate()和across()函数将X中的所有变量转换为数值型+列出CPI
 ```{r}
 library(dplyr)
-data <- data  %>% mutate(across(everything(), as.numeric))
-data [is.na(data )] <- 0
-data [, sapply(data , is.factor)] <- lapply(data [, sapply(data , is.factor)], as.numeric)
-#合并
-data$CPI <- cpi$CPI
+X <- X %>% mutate(across(everything(), as.numeric))
+X[is.na(X)] <- 0
+X[, sapply(X, is.factor)] <- lapply(X[, sapply(X, is.factor)], as.numeric)
 ```
 
 加入airma
 ```{r}
-install.packages("forecast")
 library(forecast)
 library(caTools)
 set.seed(123) # 为了复现结果，设置随机数种子
-split <- sample.split(data$x1, SplitRatio = 0.7)#x1是时间向量
-train <- subset(data, split == TRUE)
-test <- subset(data, split == FALSE)
+split <- sample.split(X$x1, SplitRatio = 0.7)#x1是时间向量
+train <- subset(X, split == TRUE)
+test <- subset(X, split == FALSE)
 ```
 
 ```{r}
 # 拟合 ARIMA 模型并预测训练集 时间变量：x1
-fit <- Arima(train$x1, order=c(1,1,1))
+fit <- Arima(train$x1, order=c(0,1,1))
 train$y_pred <- predict(fit)$pred
 
 # 将 ARIMA 模型的预测结果作为外生变量
