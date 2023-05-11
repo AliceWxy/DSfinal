@@ -5,7 +5,7 @@ colnames(X) = paste0("x", X_colnames$X)
 X_raw <- X
 rm(X)
 ```
-
+CPI   
 ```{r}
 #将数据差一期整合在一起
 cpi <- cpi[-1, ]
@@ -13,26 +13,21 @@ X_raw <- X_raw[-nrow(X_raw), ]
 cpi$x1 <- 1:nrow(cpi)
 cpi$month <- NULL
 X <- merge(X_raw, cpi, by = "x1")
-```
-#使用mutate()和across()函数将X中的所有变量转换为数值型+列出CPI
-```{r}
+#使用mutate()和across()函数将X中的所有变量转换为数值型
 library(dplyr)
 X <- X %>% mutate(across(everything(), as.numeric))
 X[is.na(X)] <- 0
 X[, sapply(X, is.factor)] <- lapply(X[, sapply(X, is.factor)], as.numeric)
-```
 
-加入airma
-```{r}
+
+#加入airma
 library(forecast)
 library(caTools)
 set.seed(123) # 为了复现结果，设置随机数种子
 split <- sample.split(X$x1, SplitRatio = 0.7)#x1是时间向量
 train <- subset(X, split == TRUE)
 test <- subset(X, split == FALSE)
-```
 
-```{r}
 # 拟合 ARIMA 模型并预测训练集 时间变量：x1
 fit <- Arima(train$x1, order=c(0,1,1))
 train$y_pred <- predict(fit)$pred
@@ -51,6 +46,56 @@ library(glmnet)
 test$y_arima <- predict(fit, n.ahead = nrow(test))$pred
 x.test <- as.matrix(test[, c("CPI", "y_arima")])
 y.test <- as.vector(test$CPI)
+y.pred <- predict(cvfit, newx = x.test)
+
+# 计算均方误差
+mse <- mean((y.test - y.pred)^2)
+# 计算R^2
+r2 <- 1 - sum((y.test - y.pred)^2) / sum((y.test - mean(y.test))^2)
+```
+
+PPI
+```{r}
+#将数据差一期整合在一起
+ppi <- ppi[-1, ]
+X_raw <- X_raw[-nrow(X_raw), ]
+ppi$x1 <- 1:nrow(ppi)
+ppi$month <- NULL
+Y <- merge(X_raw, ppi, by = "x1")
+
+#使用mutate()和across()函数将X中的所有变量转换为数值型
+library(dplyr)
+Y <- Y %>% mutate(across(everything(), as.numeric))
+Y[is.na(Y)] <- 0
+Y[, sapply(Y, is.factor)] <- lapply(Y[, sapply(Y, is.factor)], as.numeric)
+
+
+#加入airma
+library(forecast)
+library(caTools)
+set.seed(123) # 为了复现结果，设置随机数种子
+split <- sample.split(Y$x1, SplitRatio = 0.7)#x1是时间向量
+train <- subset(Y, split == TRUE)
+test <- subset(Y, split == FALSE)
+
+# 拟合 ARIMA 模型并预测训练集 时间变量：x1
+fit <- Arima(train$x1, order=c(0,1,1))
+train$y_pred <- predict(fit)$pred
+
+# 将 ARIMA 模型的预测结果作为外生变量
+train$y_arima <- residuals(fit)
+
+# 将训练集中的特征变量和外生变量分别存储在矩阵和向量中
+x <- as.matrix(train[, c("PPI", "y_arima")])
+y <- as.vector(train$PPI)
+
+# 拟合模型，alpha = 1 表示使用 Lasso 正则化
+cvfit <- cv.glmnet(x, y, alpha = 1) 
+# 预测测试集的目标变量
+library(glmnet)
+test$y_arima <- predict(fit, n.ahead = nrow(test))$pred
+x.test <- as.matrix(test[, c("PPI", "y_arima")])
+y.test <- as.vector(test$PPI)
 y.pred <- predict(cvfit, newx = x.test)
 
 # 计算均方误差
