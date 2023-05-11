@@ -1,0 +1,151 @@
+---
+title: "Untitled"
+output: html_document
+date: '2023-05-10'
+---
+
+```{r}
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+
+```
+
+```{r}
+library(randomForest)
+
+#合并cpi和x数据
+cpi <- cpi[,-1]
+data <- cbind(X,cpi)
+```
+
+```{r}
+data <- data[,-1]
+
+```
+
+```{r}
+#区分训练集和测试集
+train_size <- floor(0.8 * nrow(data))
+train <- data[1:train_size, ]
+test <- data[(train_size + 1):nrow(data), ]
+
+```
+
+
+```{r}
+library(h2o)
+```
+
+```{r}
+localH2O = h2o.init(nthreads = -1) 
+train_h2o = as.h2o(train)
+test_h2o = as.h2o(test)
+inClass = FALSE
+if (inClass == FALSE) {
+  rf_fit = h2o.randomForest(x = 1:151, 
+                            y = 152,
+                            training_frame = train_h2o,
+                            ntrees = 500, # adjust to 3000 if want better performance
+                            stopping_rounds = 2,
+                            model_id = "rf_MNIST"
+  )
+  h2o.saveModel(rf_fit, path = "mnist" )  
+} else  {
+  rf_fit = h2o.loadModel(file.path("mnist", "rf_MNIST"))
+} 
+
+summary(rf_fit)  
+
+```
+
+```{r}
+predictions <- h2o.predict(rf_fit, newdata = test_h2o)
+
+# View a summary of the predictions
+summary(predictions)
+
+# Evaluate the performance
+perf <- h2o.performance(rf_fit, newdata = test_h2o); perf
+mae.nn <- h2o.mae(rf_fit); mae.nn
+r2.nn <- h2o.r2(rf_fit); r2.nn
+```
+
+
+
+```{r}
+# 设置交叉验证参数
+nfolds <- 5  # 设置折数
+
+# 创建交叉验证模型
+cv_model <- h2o.randomForest(x = 1:151, 
+                             y = 152,
+                             training_frame = train_h2o,
+                             ntrees = 500,
+                             stopping_rounds = 2,
+                             nfolds = nfolds,
+                             seed = 1234,
+                             model_id = "rf_MNIST_new"
+)
+
+# 查看交叉验证模型的结果
+print(cv_model)
+
+# 获取交叉验证模型的性能指标
+# 获取交叉验证模型的性能指标
+cv_perf <- h2o.performance(cv_model)
+print(cv_perf)
+
+# 找到最佳模型索引
+best_model_index <- which.min(cv_perf@metrics$mae)
+print(best_model_index)
+
+# 获取最佳交叉验证模型
+best_model <- h2o.getModel(cv_model@model_id)
+print(best_model)
+
+
+# 使用最佳模型重新拟合
+# 使用最佳模型的参数重新创建随机森林模型
+# 使用最佳模型的参数重新创建随机森林模型
+new_model <- h2o.randomForest(x = 1:151, 
+                              y = 152,
+                              training_frame = train_h2o,
+                              ntrees = best_model@model$ntrees,
+                              stopping_rounds = best_model@model$stopping_rounds,
+                              model_id = "new_rf_MNIST"
+)
+
+
+# 保存新模型
+h2o.saveModel(new_model, path = "new_mnist")
+
+# 摘要新模型
+summary(new_model)
+
+# 对新数据进行预测
+new_predictions <- h2o.predict(new_model, newdata = test_h2o)
+
+# 查看预测摘要
+summary(new_predictions)
+
+# 评估性能
+new_perf <- h2o.performance(new_model, newdata = test_h2o)
+print(new_perf)
+
+# 计算新模型的MAE和R2
+mae_new <- h2o.mae(new_model)
+print(mae_new)
+r2_new <- h2o.r2(new_model)
+print(r2_new)
+
+```
+
+```{r}
+# 获取可用的网格 ID
+grid_ids <- h2o.ls()
+print(grid_ids)
+
+```
+
+
