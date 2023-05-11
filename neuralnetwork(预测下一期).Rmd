@@ -1,0 +1,77 @@
+---
+title: "DS3"
+output: html_document
+date: '2023-05-11'
+---
+
+```{r}
+# data
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+#Column names
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+```
+
+```{r}
+# Scaling
+x.nn <- as.matrix(scale(X[,-1]))
+
+cpi.nn <- scale(cpi[,-1])
+colnames(cpi.nn) <- "cpi"
+
+nndata <- as.data.frame(cbind(cpi.nn[-1,], X[-nrow(X),1], x.nn[-nrow(x.nn),]))
+colnames(nndata)[1:2] <- c("cpi", "timestamp")
+
+ppi.nn <- scale(ppi[,-1])
+colnames(ppi.nn) <- "ppi"
+
+nndata.ppi <- as.data.frame(cbind(ppi.nn, X[,1], x.nn))
+colnames(nndata.ppi)[2] <- "timestamp"
+```
+
+```{r}
+library(h2o)
+
+# Initialize h2o
+h2o.init()
+```
+
+```{r}
+# Format the data
+nndata$timestamp <- as.POSIXct(nndata$timestamp, origin = "2020-01-01")
+data_h2o <- as.h2o(nndata)
+
+# Define the range for hyper parameter
+hyper_params <- list(
+  activation = c("Rectifier", "Tanh", "RectifierWithDropout"),
+  hidden = list(c(30,30), c(40,40), c(50,50), c(60,60), c(70,70), c(80,80), c(90,90), c(100,100)),
+  epochs = c(100, 150, 200, 250, 300),
+  adaptive_rate = c(TRUE, FALSE),
+  input_dropout_ratio = c(0.05, 0.1, 0.2)
+)
+
+# Define the basic framework of neural network and the layers
+nn_model <- h2o.deeplearning(
+  x = names(nndata)[-1],
+  y = "cpi",
+  training_frame = data_h2o,
+  epochs = 100,
+  hidden = c(10, 10),
+  activation = "Rectifier",
+  input_dropout_ratio = 0.2
+)
+
+# Selecting the best hyper parameters
+grid <- h2o.grid("deeplearning", grid_id = "nn_grid", 
+                 hyper_params = hyper_params,
+                 x = names(nndata)[-1],
+                 y = "cpi",
+                 training_frame = data_h2o, 
+                 seed = 123)
+
+# The best model and its parameters
+best_model <- grid@model_ids[[1]]
+nnmodel <- h2o.getModel(best_model); nnmodel
+r2.nn <- h2o.r2(nnmodel); r2.nn
+h2o.varimp(nnmodel)
+```
