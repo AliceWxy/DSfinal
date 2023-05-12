@@ -1,0 +1,70 @@
+```{r}
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+```
+# Calculate the inflation rate
+```{r}
+# Generate a null vector
+n <- nrow(cpi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(cpi[p1,2])-log(cpi[p2,2]))
+}
+inf <- as.data.frame(inf, col.names = "inf")
+inf <- t(inf)
+colnames(inf)[1] <- "INF"
+```
+#使用mutate()和across()函数将X中的所有变量转换为数值型、检查缺失值
+```{r}
+library(dplyr)
+X <- X %>% mutate(across(everything(), as.numeric))
+X[is.na(X)] <- 0
+X[, sapply(X, is.factor)] <- lapply(X[, sapply(X, is.factor)], as.numeric)
+```
+#删除X的前12行，合并数据
+```{r}
+X <- X[-(1:12), ]
+data <- cbind(inf, X)
+```
+# 将数据集分为训练集和测试集+# 处理缺失值和标准化处理
+```{r}
+train_size <- floor(0.8 * nrow(data))
+train <- data[1:train_size, ]
+test <- data[(train_size + 1):nrow(data), ]
+
+train[, -2] <- scale(train[, -2]) #标准化时间序列和inf外的其他变量
+train[is.na(train)] <- 0 # 处理缺失值
+test[, -2] <- scale(test[, -2])
+test[is.na(test)] <- 0
+```
+#lasso:用训练集中的所有列（除了月份列）作为自变量来拟合LASSO回归模型，使用训练集中的inf列作为因变量：
+```{r}
+library(glmnet)
+x_train <- as.matrix(train[, -(1:2)]) # 选择除了前两列之外的所有列作为自变量
+y_train <- train$INF
+lasso_model <- glmnet(x_train, y_train, alpha = 1)
+
+#使用交叉验证方法选择最佳的正则化参数lambda：
+cv_model <- cv.glmnet(x_train, y_train, alpha = 1, nfolds = 10, type.measure = "mse")
+best_lambda <- cv_model$lambda.min
+
+# 使用最佳的正则化参数lambda拟合LASSO模型
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+```
+
+```{r}
+# 对测试集进行预测
+x_test <- as.matrix(test[, -(1:2)])
+y_test <- test$INF
+y_pred <- predict(lasso_model, newx = x_test)
+
+# 计算MSE和MAE、R-squared
+mse <- mean((y_test - y_pred)^2)
+mae <- mean(abs(y_test - y_pred))
+r2 <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
+```
