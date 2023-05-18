@@ -38,7 +38,7 @@ train_size <- floor(0.8 * nrow(data))
 train <- data[1:train_size, ]
 test <- data[(train_size + 1):nrow(data), ]
 
-train[, -2] <- scale(train[, -2]) # Normalized time series and variables other than inf
+train[, -(1:2)] <- scale(train[, -(1:2)]) # Normalized time series and variables other than inf
 train[is.na(train)] <- 0 
 test[, -2] <- scale(test[, -2])
 test[is.na(test)] <- 0
