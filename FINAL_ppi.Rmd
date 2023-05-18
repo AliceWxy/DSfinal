@@ -1,0 +1,141 @@
+---
+title: "DS4_ppi_final"
+author: "WANG, Xiangyi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+getwd()
+setwd("/Users/wangyang/Downloads/文件/CUHK/S2/DS/final")
+```
+
+```{r}
+# data
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+#Column names
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", 1:ncol(X))
+```
+
+```{r}
+# Generate a null vector
+n <- nrow(ppi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(ppi[p1,2])-log(ppi[p2,2]))
+}
+inf <- as.data.frame(inf, col.names = "inf")
+
+# Scaling X except for time var
+x <- as.matrix(scale(X[-c(1:12),-1]))
+
+# Binding the data
+nndata <- as.data.frame(cbind(inf[-1,], X[-c(1:12, nrow(X)),1], x[-nrow(x),])) # first col will be y
+colnames(nndata)[1:2] <- c("inf", "x1")
+```
+
+```{r}
+library(h2o)
+
+# Initialize h2o JVM
+h2o.init()
+```
+
+```{r}
+set.seed(1234)
+
+# Format the data
+nndata$x1 <- as.POSIXct(nndata$x1, origin = "2010-01-01")
+
+# Split the data into training set and validation set
+train_size <- floor(0.8 * nrow(nndata))
+train <- nndata[1:train_size, ]
+valid <- nndata[(train_size + 1):nrow(nndata), ]
+
+# Turn the data into h2o format
+train <- as.h2o(train)
+valid <- as.h2o(valid)
+```
+
+```{r}
+# Define the range for hyper parameter
+hyper_params <- list(
+  activation = c("Rectifier", "Tanh", "RectifierWithDropout"),
+  hidden = list(c(40,40), c(60,60), c(80,80)),
+  epochs = c(100, 200),
+  adaptive_rate = c(TRUE, FALSE),
+  input_dropout_ratio = c(0.1, 0.2)
+)
+
+# Define the basic framework of neural network
+nn_model <- h2o.deeplearning(
+  x = names(nndata)[-1],
+  y = "inf",
+  training_frame = train,
+  validation_frame = valid, 
+  epochs = 100,
+  hidden = c(10,10),
+  activation = "Rectifier",
+  input_dropout_ratio = 0.1, 
+  nfolds = 5
+)
+h2o.getModel(nn_model@model_id)@model$cross_validation_metrics@metrics$r2
+r2.basenn <- h2o.r2(nn_model); r2.basenn
+```
+
+```{r}
+# Selecting the best hyper parameters
+grid <- h2o.grid("deeplearning", grid_id = "nn4", 
+                 hyper_params = hyper_params,
+                 x = names(nndata)[-1],
+                 y = "inf",
+                 training_frame = train, 
+                 validation_frame = valid, 
+                 nfolds = 5,
+                 seed = 1234)
+
+# Get the result
+grid_results <- h2o.getGrid("nn4", sort_by = "r2", decreasing = T) 
+best_model <- grid_results@summary_table[1, "model_ids"] # id of the best one
+nnmodel <- h2o.getModel(best_model); nnmodel
+nnmodel@model$cross_validation_metrics@metrics$r2 # R squared of the best model
+h2o.varimp(nnmodel) # Variable importance
+
+# Save the model
+nn <- h2o.saveModel(nnmodel, path = "nn4", force = T)
+```
+
+```{r}
+# Load the pre-trained model
+model <- h2o.loadModel(file.path("nn4", best_model))
+
+# Make predictions on the test data
+test <- fake.testing.X
+
+## Clean the test data
+# Set the colnames
+colnames(test) = paste0("x", 1:ncol(X))
+# Scaling X except for time var
+x <- as.matrix(scale(test[,-1]))
+
+# Binding the data
+test.x <- as.data.frame(cbind(test[,1], x))
+colnames(test.x)[1] <- "x1"
+test.x$x1 <- as.POSIXct(test.x$x1, origin = "2010-01-01")
+test.x$x1 <- test.x$x1 + fake.testing.X[1,1] - X[1,1]
+
+# Prediction results
+test_data <- as.h2o(test.x)
+pred <- h2o.predict(object = model, newdata = test_data)
+pred.df <- as.data.frame(pred, col.names = "y_hat"); pred.df
+```
+
+```{r}
+h2o.shutdown(prompt = F)
+```
