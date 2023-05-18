@@ -20,51 +20,51 @@ inf <- as.data.frame(inf, col.names = "inf")
 inf <- t(inf)
 colnames(inf)[1] <- "INF"
 ```
-#使用mutate()和across()函数将X中的所有变量转换为数值型、检查缺失值
+# Use mutate() and cross() functions to convert all variables in X to numeric, check for missing values
 ```{r}
 library(dplyr)
 X <- X %>% mutate(across(everything(), as.numeric))
 X[is.na(X)] <- 0
 X[, sapply(X, is.factor)] <- lapply(X[, sapply(X, is.factor)], as.numeric)
 ```
-#删除X的前12行，合并数据
+# Delete the first 12 rows of X and merge the data
 ```{r}
 X <- X[-(1:12), ]
 data <- cbind(inf, X)
 ```
-# 将数据集分为训练集和测试集+# 处理缺失值和标准化处理
+# Divide the dataset into training and test sets + # Handle missing values and normalization
 ```{r}
 train_size <- floor(0.8 * nrow(data))
 train <- data[1:train_size, ]
 test <- data[(train_size + 1):nrow(data), ]
 
-train[, -2] <- scale(train[, -2]) #标准化时间序列和inf外的其他变量
-train[is.na(train)] <- 0 # 处理缺失值
+train[, -2] <- scale(train[, -2]) # Normalized time series and variables other than inf
+train[is.na(train)] <- 0 
 test[, -2] <- scale(test[, -2])
 test[is.na(test)] <- 0
 ```
-#lasso:用训练集中的所有列（除了月份列）作为自变量来拟合LASSO回归模型，使用训练集中的inf列作为因变量：
+#lasso:Fitting the LASSO regression model using all columns in the training set (except the month column) as independent variables and using the inf column in the training set as the dependent variable:
 ```{r}
 library(glmnet)
-x_train <- as.matrix(train[, -(1:2)]) # 选择除了前两列之外的所有列作为自变量
+x_train <- as.matrix(train[, -(1:2)]) # Select all columns except the first two as independent variables
 y_train <- train$INF
 lasso_model <- glmnet(x_train, y_train, alpha = 1)
 
-#使用交叉验证方法选择最佳的正则化参数lambda：
+# Select the best regularization parameter lambda using the cross-validation method:
 cv_model <- cv.glmnet(x_train, y_train, alpha = 1, nfolds = 10, type.measure = "mse")
 best_lambda <- cv_model$lambda.min
 
-# 使用最佳的正则化参数lambda拟合LASSO模型
+# Fit the LASSO model using the best regularization parameter lambda
 lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 ```
 
 ```{r}
-# 对测试集进行预测
+# Predictions on the test set
 x_test <- as.matrix(test[, -(1:2)])
 y_test <- test$INF
 y_pred <- predict(lasso_model, newx = x_test)
 
-# 计算MSE和MAE、R-squared
+# Calculate MSE and MAE, R-squared
 mse <- mean((y_test - y_pred)^2)
 mae <- mean(abs(y_test - y_pred))
 r2 <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
