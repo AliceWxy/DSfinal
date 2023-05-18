@@ -1,3 +1,4 @@
+
 ```{r}
 load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
 X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
@@ -68,3 +69,4 @@ mse <- mean((y_test - y_pred)^2)
 mae <- mean(abs(y_test - y_pred))
 r2 <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
 ```
+
