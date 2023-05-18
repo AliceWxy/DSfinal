@@ -1,0 +1,190 @@
+---
+title: "Untitled"
+output: html_document
+date: '2023-05-12'
+---
+
+###cpi
+```{r}
+library(h2o)
+
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", X_colnames$X)
+```
+
+```{r}
+# Generate a null vector
+n <- nrow(cpi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(cpi[p1,2])-log(cpi[p2,2]))
+}
+inf <- as.data.frame(inf, col.names = "inf")
+
+#inf <- t(inf)
+
+```
+
+```{r}
+#将数据差一期整合在一起
+data <- X[13:167,]
+inf <- inf[-1,]
+data <- cbind(data,inf)
+
+```
+
+
+
+```{r}
+h2o.init(jvm_custom_args=c("sys.ai.h2o.debug.allowJavaVersions", "14"))
+localH2O = h2o.init(nthreads = -1) 
+train_h2o = as.h2o(data)
+hyper_params <- list(
+  ntrees = c(500,1000,1500,2000,2500,3000,3500),  # 树的数量
+  stopping_rounds = c(1,2,3,4,5,6),
+  max_depth = c(10, 20, 30,40,50,60),  # 树的最大深度
+  min_rows = c(1, 2, 3,4,5,6,7,8,9,10)
+)
+
+search_criteria <- list(strategy = "RandomDiscrete", max_models = 9)  # 搜索策略和最大模型数
+rf_grid <- h2o.grid(
+  algorithm = "randomForest",
+  x = 1:151,
+  y = 152,
+  training_frame = train_h2o,
+  grid_id = "rf_grid_b",
+  hyper_params = hyper_params,
+  nfolds = 5,
+  search_criteria = search_criteria
+)
+
+# 获取网格搜索结果
+grid_results <- h2o.getGrid("rf_grid_b", sort_by = "r2", decreasing = FALSE)
+
+# 提取最佳模型
+best_model <- grid_results@summary_table[1, "model_ids"]
+
+# 获取最佳模型对象
+model <- h2o.getModel(best_model)
+
+ntrees <- model@model$ntrees
+stopping_rounds <- model@model$stopping_rounds
+max_depth <- model@model$max_depth
+min_rows <- model@model$min_rows
+
+
+new_model <- h2o.randomForest(
+  x = 1:151,
+  y = 152,
+  training_frame = train_h2o,
+  ntrees = ntrees,
+  stopping_rounds = stopping_rounds,
+  model_id = "new_rf_model"
+)
+
+
+```
+
+```{r}
+
+r2_new_cpi <- h2o.r2(new_model)
+r2_new_cpi
+
+```
+
+
+###ppi
+```{r}
+# Generate a null vector
+n <- nrow(ppi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(ppi[p1,2])-log(ppi[p2,2]))
+}
+inf <- as.data.frame(inf, col.names = "inf")
+
+#inf <- t(inf)
+```
+
+```{r}
+#将数据差一期整合在一起
+data_ppi <- X[13:167,]
+data <- cbind(data_ppi,inf)
+
+```
+
+```{r}
+h2o.init(jvm_custom_args=c("sys.ai.h2o.debug.allowJavaVersions", "14"))
+localH2O = h2o.init(nthreads = -1) 
+train_h2o = as.h2o(data_ppi)
+hyper_params_ppi <- list(
+  ntrees = c(500,1000,1500,2000,2500,3000,3500),  # 树的数量
+  stopping_rounds = c(1,2,3,4,5,6),
+  max_depth = c(10, 20, 30,40,50,60),  # 树的最大深度
+  min_rows = c(1, 2, 3,4,5,6,7,8,9,10)
+)
+
+search_criteria <- list(strategy = "RandomDiscrete", max_models = 9)  # 搜索策略和最大模型数
+rf_grid_ppi <- h2o.grid(
+  algorithm = "randomForest",
+  x = 1:151,
+  y = 152,
+  training_frame = train_h2o,
+  grid_id = "rf_grid_c",
+  hyper_params = hyper_params,
+  nfolds = 5,
+  search_criteria = search_criteria
+)
+
+# 获取网格搜索结果
+grid_results <- h2o.getGrid("rf_grid_c", sort_by = "r2", decreasing = FALSE)
+
+# 提取最佳模型
+best_model <- grid_results@summary_table[1, "model_ids"]
+
+# 获取最佳模型对象
+model <- h2o.getModel(best_model)
+
+ntrees <- model@model$ntrees
+stopping_rounds <- model@model$stopping_rounds
+max_depth <- model@model$max_depth
+min_rows <- model@model$min_rows
+
+
+new_model <- h2o.randomForest(
+  x = 1:151,
+  y = 152,
+  training_frame = train_h2o,
+  ntrees = ntrees,
+  stopping_rounds = stopping_rounds,
+  model_id = "new_rf_model"
+)
+
+
+```
+
+```{r}
+
+r2_new_ppi <- h2o.r2(new_model)
+r2_new_ppi
+
+```
+
+
+
+```{r}
+h2o.getModel(rf_grid@model_ids[[1]])@model$cross_validation_metrics@metrics$r2
+
+h2o.shutdown()
+```
+
+
