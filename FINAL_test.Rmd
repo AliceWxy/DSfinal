@@ -1,0 +1,301 @@
+---
+title: "DS4_final"
+author: "WANG, Xiangyi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+getwd()
+setwd("/Users/wangyang/Downloads/文件/CUHK/S2/DS/final")
+```
+
+```{r}
+# data
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/dataset_inf.Rdata"))
+# Column names
+X_colnames <- read.csv("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/X_colnames.csv")
+colnames(X) = paste0("x", 1:ncol(X))
+# Load the test data
+load(url("https://github.com/zhentaoshi/Econ5821/raw/main/data_example/data_oos.Rdata"))
+```
+
+```{r}
+# Generate a null vector
+n <- nrow(cpi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(cpi[p1,2])-log(cpi[p2,2]))
+}
+inf <- unlist(inf)
+inf <- as.data.frame(inf, col.names = "inf")
+
+# Scaling X except for time var
+x <- as.matrix(scale(X[-c(1:12),-1]))
+
+# Binding the data
+nndata <- as.data.frame(cbind(inf[-1,], X[-c(1:12, nrow(X)),1], x[-nrow(x),])) # first col will be y
+colnames(nndata)[1:2] <- c("inf", "x1")
+```
+
+```{r}
+library(h2o)
+
+# Initialize h2o JVM
+h2o.init()
+```
+
+```{r}
+set.seed(1234)
+
+# Format the data
+nndata$x1 <- as.POSIXct(nndata$x1, origin = "2010-01-01")
+
+# Split the data into training set and validation set
+train_size <- floor(0.8 * nrow(nndata))
+train <- nndata[1:train_size, ]
+valid <- nndata[(train_size + 1):nrow(nndata), ]
+
+# Turn the data into h2o format
+train <- as.h2o(train)
+valid <- as.h2o(valid)
+```
+
+```{r}
+# Define the range for hyper parameter
+hyper_params <- list(
+  activation = c("Rectifier", "Tanh", "RectifierWithDropout"),
+  hidden = list(c(40,40), c(60,60), c(80,80), c(100,100), c(150,150)),
+  epochs = c(100, 300, 500),
+  adaptive_rate = c(TRUE, FALSE),
+  input_dropout_ratio = c(0.1, 0.2)
+)
+
+# Define the basic framework of neural network
+nn_model <- h2o.deeplearning(
+  x = names(nndata)[-1],
+  y = "inf",
+  training_frame = train,
+  validation_frame = valid, 
+  epochs = 100,
+  hidden = c(10,10),
+  activation = "Rectifier",
+  input_dropout_ratio = 0.1, 
+  nfolds = 5
+)
+h2o.getModel(nn_model@model_id)@model$cross_validation_metrics@metrics$r2
+r2.basenn <- h2o.r2(nn_model); r2.basenn
+```
+
+```{r}
+# Selecting the best hyper parameters
+grid <- h2o.grid("deeplearning", grid_id = "nn__cpi", 
+                 hyper_params = hyper_params,
+                 x = names(nndata)[-1],
+                 y = "inf",
+                 training_frame = train, 
+                 validation_frame = valid, 
+                 nfolds = 5, 
+                 seed = 1234)
+
+# Get the result
+grid_results <- h2o.getGrid("nn__cpi", sort_by = "r2", decreasing = T) 
+best_model <- grid_results@summary_table[1, "model_ids"] # id of the best one
+nnmodel <- h2o.getModel(best_model); nnmodel
+nnmodel@model$cross_validation_metrics@metrics$r2 # R squared of the best model
+h2o.varimp(nnmodel) # Variable importance
+
+# Save the model
+nn <- h2o.saveModel(nnmodel, path = "nn__cpi", force = T)
+```
+
+```{r}
+# Load the pre-trained model
+model <- h2o.loadModel(file.path("nn__cpi", best_model))
+
+# Make predictions on the test data
+test <- real.X
+
+## Clean the test data
+# Set the colnames
+colnames(test) = paste0("x", 1:ncol(X))
+# Bind the last period of X with test data
+test <- rbind(X[nrow(X),], test[-nrow(test),])
+# Scaling X except for time var
+x <- as.matrix(scale(test[,-1]))
+
+# Binding the data
+test.x <- as.data.frame(cbind(test[,1], x))
+colnames(test.x)[1] <- "x1"
+test.x$x1 <- as.POSIXct(test.x$x1, origin = "2010-01-01")
+test.x$x1 <- test.x$x1 + test[1,1] - X[1,1]
+
+# Prediction results
+test_data <- as.h2o(test.x)
+pred.cpi <- h2o.predict(object = model, newdata = test_data)
+pred.df.cpi <- as.data.frame(pred.cpi, col.names = "y_hat"); pred.df.cpi
+write.csv(pred.df.cpi, file = "/Users/wangyang/Downloads/文件/CUHK/S2/DS/final/yhat_cpi.csv")
+```
+
+```{r}
+# Generate a null vector
+n <- nrow(ppi)
+inf=vector("numeric", length = n-12)
+
+# Calculate the inflation rate
+for (i in 1:(n-12)) {
+  p1 = i+12
+  p2 = i
+  inf[i] <- (log(ppi[p1,2])-log(ppi[p2,2]))
+}
+inf <- unlist(inf)
+inf <- as.data.frame(inf, col.names = "inf")
+
+# Scaling X except for time var
+x <- as.matrix(scale(X[-c(1:12),-1]))
+
+# Binding the data
+nndata <- as.data.frame(cbind(inf[-1,], X[-c(1:12, nrow(X)),1], x[-nrow(x),])) # first col will be y
+colnames(nndata)[1:2] <- c("inf", "x1")
+```
+
+```{r}
+set.seed(1234)
+
+# Format the data
+nndata$x1 <- as.POSIXct(nndata$x1, origin = "2010-01-01")
+
+# Split the data into training set and validation set
+train_size <- floor(0.8 * nrow(nndata))
+train <- nndata[1:train_size, ]
+valid <- nndata[(train_size + 1):nrow(nndata), ]
+
+# Turn the data into h2o format
+train <- as.h2o(train)
+valid <- as.h2o(valid)
+```
+
+```{r}
+# Define the range for hyper parameter
+hyper_params <- list(
+  activation = c("Rectifier", "Tanh", "RectifierWithDropout"),
+  hidden = list(c(40,40), c(60,60), c(80,80)),
+  epochs = c(100, 200),
+  adaptive_rate = c(TRUE, FALSE),
+  input_dropout_ratio = c(0.1, 0.2)
+)
+
+# Define the basic framework of neural network
+nn_model <- h2o.deeplearning(
+  x = names(nndata)[-1],
+  y = "inf",
+  training_frame = train,
+  validation_frame = valid, 
+  epochs = 100,
+  hidden = c(10,10),
+  activation = "Rectifier",
+  input_dropout_ratio = 0.1, 
+  nfolds = 5
+)
+h2o.getModel(nn_model@model_id)@model$cross_validation_metrics@metrics$r2
+r2.basenn <- h2o.r2(nn_model); r2.basenn
+```
+
+```{r}
+# Selecting the best hyper parameters
+grid <- h2o.grid("deeplearning", grid_id = "nn__ppi", 
+                 hyper_params = hyper_params,
+                 x = names(nndata)[-1],
+                 y = "inf",
+                 training_frame = train, 
+                 validation_frame = valid, 
+                 nfolds = 5,
+                 seed = 1234)
+
+# Get the result
+grid_results <- h2o.getGrid("nn__ppi", sort_by = "r2", decreasing = T) 
+best_model <- grid_results@summary_table[1, "model_ids"] # id of the best one
+nnmodel <- h2o.getModel(best_model); nnmodel
+nnmodel@model$cross_validation_metrics@metrics$r2 # R squared of the best model
+h2o.varimp(nnmodel) # Variable importance
+
+# Save the model
+nn <- h2o.saveModel(nnmodel, path = "nn__ppi", force = T)
+```
+
+```{r}
+# Load the pre-trained model
+model <- h2o.loadModel(file.path("nn__ppi", best_model))
+
+# Make predictions on the test data
+test <- real.X
+
+## Clean the test data
+# Set the colnames
+colnames(test) = paste0("x", 1:ncol(X))
+# Bind the last period of X with test data
+test <- rbind(X[nrow(X),], test[-nrow(test),])
+# Scaling X except for time var
+x <- as.matrix(scale(test[,-1]))
+
+# Binding the data
+test.x <- as.data.frame(cbind(test[,1], x))
+colnames(test.x)[1] <- "x1"
+test.x$x1 <- as.POSIXct(test.x$x1, origin = "2010-01-01")
+test.x$x1 <- test.x$x1 + test[1,1] - X[1,1]
+
+# Prediction results
+test_data <- as.h2o(test.x)
+pred.ppi <- h2o.predict(object = model, newdata = test_data)
+pred.df.ppi <- as.data.frame(pred.ppi, col.names = "y_hat"); pred.df.ppi
+
+write.csv(pred.df.ppi, file = "/Users/wangyang/Downloads/文件/CUHK/S2/DS/final/yhat_ppi.csv")
+```
+
+```{r}
+# Make the real price index continuous
+tot.cpi <- rbind(cpi, real.cpi)
+tot.ppi <- rbind(ppi, real.ppi)
+
+# Calculate the real inflation rate
+n <- real.cpi[1,1] - 12
+inf=vector("numeric", length = 30)
+for (i in n:(n+29)) {
+    p1 = i+12
+    p2 = i
+    inf[i-n+1] <- (log(tot.cpi[p1,2])-log(tot.cpi[p2,2]))
+}
+inf <- unlist(inf)
+cpi.inf <- as.data.frame(inf, col.names = "inf")
+
+inf=vector("numeric", length = 30)
+for (i in n:(n+29)) {
+    p1 = i+12
+    p2 = i
+    inf[i-n+1] <- (log(tot.ppi[p1,2])-log(tot.ppi[p2,2]))
+}
+inf <- unlist(inf)
+ppi.inf <- as.data.frame(inf, col.names = "inf")
+
+# Calculate the OOS R squared
+oos <- function(y, y_hat) {
+   SSres <- sum((y - y_hat)^2)
+   SStot <- sum((y - mean(y))^2)
+   return(1 - SSres/SStot)
+}
+cpi.inf <- as.numeric(unlist(cpi.inf))
+pred.df.cpi <- as.numeric(unlist(pred.df.cpi))
+ppi.inf <- as.numeric(unlist(ppi.inf))
+pred.df.ppi <- as.numeric(unlist(pred.df.ppi))
+oos.cpi <- oos(cpi.inf, pred.df.cpi); oos.cpi
+oos.ppi <- oos(ppi.inf, pred.df.ppi); oos.ppi
+```   
+
+```{r}
+h2o.shutdown(prompt = F)
+```
